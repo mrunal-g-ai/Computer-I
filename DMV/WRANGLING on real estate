@@ -1,0 +1,304 @@
+
+# EXPERIMENT 4: DATA WRANGLING ON REAL ESTATE MARKET
+
+# 1. Import Libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import re
+
+# 2. Load Dataset Directly from Online URL
+DATA_URL = "https://raw.githubusercontent.com/D-K02/Bangalore-Real-Estate-Data-Analysis/main/house_price.csv"
+
+df = pd.read_csv(DATA_URL)
+print("Real Estate Dataset Loaded Successfully!")
+print(df.head())
+
+# 3. Explore Dataset
+print("\nDataset Shape:", df.shape)
+print("\nOriginal Column Names:", df.columns.tolist())
+
+print("\nDataset Information:")
+df.info()
+
+print("\nStatistical Summary:\n", df.describe(include="all"))
+
+# 4. Clean Column Names
+df.columns = (
+    df.columns.str.strip()
+    .str.lower()
+    .str.replace(r"[^a-zA-Z0-9]+", "_", regex=True)
+    .str.strip("_")
+)
+
+# Rename columns to match the practical
+df.rename(columns={
+    "location": "neighborhood",
+    "size": "property_type",
+    "total_sqft": "area",
+    "price": "sale_price",
+    "bhk": "bedrooms",
+    "bath": "bathrooms",
+    "price_per_sqft": "price_per_sq_ft"
+}, inplace=True)
+
+print("\nCleaned Column Names:")
+print(df.columns.tolist())
+
+# 5. Identify Missing Values
+print("\nMissing Values:\n", df.isnull().sum())
+
+# 6. Standardize Text Data
+for col in df.select_dtypes(include="object").columns:
+    df[col] = df[col].str.strip()
+
+# 7. Convert Numeric Columns
+possible_numeric = [
+    "sale_price", "area", "bedrooms",
+    "bathrooms", "price_per_sq_ft"
+]
+
+for col in possible_numeric:
+    if col in df.columns:
+        if df[col].dtype == "object":
+            # Handle area ranges such as 1200 - 1500
+            def convert_numeric(value):
+                numbers = re.findall(r"\d+\.?\d*", str(value))
+                if numbers:
+                    return np.mean([float(x) for x in numbers])
+                return np.nan
+
+            df[col] = df[col].apply(convert_numeric)
+        else:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+print("\nData Types:\n", df.dtypes)
+
+# 8. Handle Missing Values
+numeric_columns = df.select_dtypes(include=np.number).columns
+categorical_columns = df.select_dtypes(exclude=np.number).columns
+
+for col in numeric_columns:
+    if df[col].notna().any():
+        df[col] = df[col].fillna(df[col].median())
+
+for col in categorical_columns:
+    if df[col].isnull().any() and not df[col].mode().empty:
+        df[col] = df[col].fillna(df[col].mode()[0])
+
+print("\nMissing Values After Cleaning:\n", df.isnull().sum())
+
+# 9. Remove Duplicate Records
+print("\nNumber of Duplicates:", df.duplicated().sum())
+
+df.drop_duplicates(inplace=True)
+
+print("Shape After Removing Duplicates:", df.shape)
+
+# 10. Data Merging
+# Create neighborhood summary from the loaded dataset
+if "neighborhood" in df.columns and "sale_price" in df.columns:
+    neighborhood_data = (
+        df.groupby("neighborhood")["sale_price"]
+        .agg(property_count="count",
+             avg_neighborhood_price="mean")
+        .reset_index()
+    )
+
+    merged_df = pd.merge(
+        df,
+        neighborhood_data,
+        on="neighborhood",
+        how="left"
+    )
+else:
+    merged_df = df.copy()
+
+print("\nMerged Dataset:\n", merged_df.head())
+
+# 11. Filtering and Subsetting
+
+# Filter by Property Type
+if "property_type" in df.columns:
+    house_data = df[
+        df["property_type"].astype(str).str.contains(
+            "BHK|Bedroom", case=False, na=False
+        )
+    ]
+    print("\nFiltered Property Data:\n", house_data.head())
+
+# Filter by Neighborhood
+if "neighborhood" in df.columns:
+    selected_area = df[
+        df["neighborhood"].astype(str).str.lower()
+        == "whitefield"
+    ]
+    print("\nProperties in Whitefield:\n", selected_area.head())
+
+# Filter by Sale Price
+if "sale_price" in df.columns:
+    expensive_properties = df[
+        df["sale_price"] > df["sale_price"].median()
+    ]
+    print("\nExpensive Properties:\n", expensive_properties.head())
+
+# 12. Display Categorical Variables
+categorical_columns = df.select_dtypes(include="object").columns
+
+print("\nCategorical Columns:")
+print(categorical_columns.tolist())
+
+# 13. One-Hot Encoding
+encoded_df = pd.get_dummies(
+    df,
+    columns=categorical_columns,
+    drop_first=True,
+    dtype=int
+)
+
+print("\nOne-Hot Encoded Data:\n", encoded_df.head())
+print("Encoded Dataset Shape:", encoded_df.shape)
+
+# 14. Average Sale Price by Neighborhood
+if "neighborhood" in df.columns and "sale_price" in df.columns:
+    neighborhood_summary = (
+        df.groupby("neighborhood")["sale_price"]
+        .agg(["count", "mean", "median", "min", "max"])
+        .sort_values("mean", ascending=False)
+    )
+
+    print("\nSale Price by Neighborhood:\n", neighborhood_summary)
+
+# 15. Average Sale Price by Property Type
+if "property_type" in df.columns and "sale_price" in df.columns:
+    property_summary = (
+        df.groupby("property_type")["sale_price"]
+        .agg(["count", "mean", "median", "min", "max"])
+        .sort_values("mean", ascending=False)
+    )
+
+    print("\nSale Price by Property Type:\n", property_summary)
+
+# 16. Identify Outliers Using IQR
+numeric_columns = df.select_dtypes(include=np.number).columns
+
+print("\nOutlier Detection:")
+
+for col in numeric_columns:
+    q1 = df[col].quantile(0.25)
+    q3 = df[col].quantile(0.75)
+    iqr = q3 - q1
+
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+
+    outliers = ((df[col] < lower) | (df[col] > upper)).sum()
+
+    print(col, "-> Outliers:", outliers)
+
+# 17. Handle Outliers Using IQR Capping
+for col in numeric_columns:
+    q1 = df[col].quantile(0.25)
+    q3 = df[col].quantile(0.75)
+    iqr = q3 - q1
+
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+
+    df[col] = df[col].clip(lower, upper)
+
+# 18. Calculate Price per Square Foot
+if "sale_price" in df.columns and "area" in df.columns:
+    df["price_per_sq_ft"] = (
+        df["sale_price"] / df["area"].replace(0, np.nan)
+    )
+
+    df["price_per_sq_ft"] = (
+        df["price_per_sq_ft"]
+        .replace([np.inf, -np.inf], np.nan)
+        .fillna(0)
+    )
+
+print("\nUpdated Dataset:\n", df.head())
+
+# 19. Average Price by Property Type
+if "property_type" in df.columns and "sale_price" in df.columns:
+    plt.figure(figsize=(10, 5))
+
+    df.groupby("property_type")["sale_price"].mean().sort_values().plot(
+        kind="bar"
+    )
+
+    plt.title("Average Sale Price by Property Type")
+    plt.xlabel("Property Type")
+    plt.ylabel("Average Sale Price (Lakhs)")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# 20. Price Distribution
+if "sale_price" in df.columns:
+    plt.figure(figsize=(8, 5))
+
+    plt.hist(df["sale_price"].dropna(), bins=20, edgecolor="black")
+
+    plt.title("Distribution of Real Estate Sale Prices")
+    plt.xlabel("Sale Price (Lakhs)")
+    plt.ylabel("Frequency")
+    plt.grid(axis="y")
+    plt.show()
+
+# 21. Area vs Sale Price
+if "area" in df.columns and "sale_price" in df.columns:
+    plt.figure(figsize=(8, 5))
+
+    plt.scatter(df["area"], df["sale_price"])
+
+    plt.title("Area vs Sale Price")
+    plt.xlabel("Area (Square Feet)")
+    plt.ylabel("Sale Price (Lakhs)")
+    plt.grid(True)
+    plt.show()
+
+# 22. Correlation Analysis
+numeric_df = df.select_dtypes(include=np.number)
+correlation = numeric_df.corr()
+
+print("\nCorrelation Matrix:\n", correlation)
+
+# 23. Correlation Heatmap
+plt.figure(figsize=(10, 7))
+
+plt.imshow(correlation, cmap="coolwarm", vmin=-1, vmax=1)
+plt.colorbar()
+
+plt.xticks(
+    range(len(correlation.columns)),
+    correlation.columns,
+    rotation=90
+)
+
+plt.yticks(
+    range(len(correlation.columns)),
+    correlation.columns
+)
+
+for i in range(len(correlation.columns)):
+    for j in range(len(correlation.columns)):
+        value = correlation.iloc[i, j]
+
+        if pd.notna(value):
+            plt.text(
+                j, i, f"{value:.2f}",
+                ha="center", va="center", fontsize=8
+            )
+
+plt.title("Correlation Heatmap of Real Estate Features")
+plt.tight_layout()
+plt.show()
+
+# 24. Export Cleaned Dataset
+df.to_csv("RealEstate_Prices_Cleaned.csv", index=False)
+
+print("\nCleaned Dataset Exported Successfully!")
+print("EXPERIMENT 4 COMPLETED SUCCESSFULLY!")

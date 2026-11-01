@@ -1,0 +1,122 @@
+# Experiment 5: Random Forest Classifier - Car Safety Prediction
+
+# 1. Import Libraries
+import os
+import itertools
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OrdinalEncoder
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
+# 2. Load Dataset
+cols = ["buying", "maint", "doors", "persons", "lug_boot", "safety", "class"]
+
+if os.path.exists("car_evaluation.csv"):
+    df = pd.read_csv("car_evaluation.csv", header=None, names=cols)
+    print("Data source: car_evaluation.csv")
+else:
+    lv = {
+        "buying": ["vhigh", "high", "med", "low"],
+        "maint": ["vhigh", "high", "med", "low"],
+        "doors": ["2", "3", "4", "5more"],
+        "persons": ["2", "4", "more"],
+        "lug_boot": ["small", "med", "big"],
+        "safety": ["low", "med", "high"]
+    }
+
+    rows = []
+    for b, m, d, p, l, s in itertools.product(*lv.values()):
+        price = lv["buying"].index(b) + lv["maint"].index(m)
+        comfort = lv["doors"].index(d) + lv["persons"].index(p) + lv["lug_boot"].index(l)
+
+        if s == "low" or p == "2" or price < 2:
+            c = "unacc"
+        elif price >= 5 and s == "high" and comfort >= 4:
+            c = "vgood"
+        elif price >= 4 and comfort >= 3:
+            c = "good"
+        else:
+            c = "acc"
+
+        rows.append([b, m, d, p, l, s, c])
+
+    df = pd.DataFrame(rows, columns=cols)
+    print("Data source: Synthetic fallback dataset")
+
+# 3. Inspect Dataset
+print("\nDataset Shape:", df.shape)
+print("\nFirst 5 Rows:\n", df.head())
+print("\nMissing Values:", int(df.isnull().sum().sum()))
+print("\nClass Distribution:\n", df["class"].value_counts())
+
+# 4. Encode Categorical Attributes
+X = df.drop("class", axis=1)
+y = df["class"]
+
+order = [
+    ["low", "med", "high", "vhigh"],
+    ["low", "med", "high", "vhigh"],
+    ["2", "3", "4", "5more"],
+    ["2", "4", "more"],
+    ["small", "med", "big"],
+    ["low", "med", "high"]
+]
+
+enc = OrdinalEncoder(categories=order)
+X_enc = pd.DataFrame(enc.fit_transform(X), columns=X.columns)
+
+# 5. Split Dataset
+X_train, X_test, y_train, y_test = train_test_split(
+    X_enc, y, test_size=0.3, random_state=42, stratify=y
+)
+
+# 6. Train Random Forest Model
+rf = RandomForestClassifier(n_estimators=100, random_state=42)
+rf.fit(X_train, y_train)
+y_pred = rf.predict(X_test)
+
+# 7. Evaluate Model
+print("\nAccuracy: {:.2f}%".format(accuracy_score(y_test, y_pred) * 100))
+
+labels = sorted(y.unique())
+print("\nConfusion Matrix:")
+print(pd.DataFrame(
+    confusion_matrix(y_test, y_pred, labels=labels),
+    index=labels, columns=labels
+))
+
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred, zero_division=0))
+
+# 8. Feature Importance
+imp = pd.Series(rf.feature_importances_, index=X.columns).sort_values()
+
+print("\nFeature Importance:")
+print(imp.sort_values(ascending=False).round(4))
+
+imp.plot(kind="barh", figsize=(7, 4))
+plt.title("Random Forest Feature Importance")
+plt.xlabel("Importance")
+plt.tight_layout()
+plt.show()
+
+# 9. Predict New Car Safety Class
+new_car = pd.DataFrame(
+    [["low", "low", "4", "4", "big", "high"]],
+    columns=X.columns
+)
+
+print("\nNew Car:", new_car.values.tolist()[0])
+
+new_car_enc = pd.DataFrame(
+    enc.transform(new_car), columns=X.columns
+)
+
+print("Predicted Class:", rf.predict(new_car_enc)[0])
+
+# Experiment Result
+print("\nExperiment 5 Completed Successfully!")

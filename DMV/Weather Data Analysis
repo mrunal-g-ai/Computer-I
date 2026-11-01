@@ -1,0 +1,180 @@
+
+# Experiment 2: Weather Data Analysis using Simulated API Data
+
+# 1. Import Libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+
+# 2. Define City and Generate Sample Weather Data
+CITY = "Pune"
+np.random.seed(42)
+
+records = []
+start_time = datetime.now()
+
+# 3. Simulate 10 Weather Observations
+for i in range(10):
+    records.append({
+        "Timestamp": start_time + timedelta(minutes=2*i),
+        "City": CITY,
+        "Temperature": round(np.random.uniform(22, 35), 2),
+        "Humidity": np.random.randint(35, 85),
+        "Pressure": np.random.randint(1000, 1020),
+        "Wind_Speed": round(np.random.uniform(1, 12), 2),
+        "Precipitation": round(np.random.uniform(0, 5), 2)
+    })
+
+weather_df = pd.DataFrame(records)
+
+print("Weather data generated successfully!")
+print("\nWeather Data:\n", weather_df)
+
+# 4. Extract Weather Attributes
+temperature = weather_df["Temperature"].iloc[0]
+humidity = weather_df["Humidity"].iloc[0]
+pressure = weather_df["Pressure"].iloc[0]
+wind_speed = weather_df["Wind_Speed"].iloc[0]
+precipitation = weather_df["Precipitation"].iloc[0]
+
+print("\nTemperature:", temperature, "°C")
+print("Humidity:", humidity, "%")
+print("Pressure:", pressure, "hPa")
+print("Wind Speed:", wind_speed, "m/s")
+print("Precipitation:", precipitation, "mm")
+
+# 5. Data Cleaning
+print("\nMissing Values:\n", weather_df.isnull().sum())
+
+weather_df.drop_duplicates(inplace=True)
+weather_df["Timestamp"] = pd.to_datetime(weather_df["Timestamp"])
+
+numeric_columns = [
+    "Temperature", "Humidity", "Pressure",
+    "Wind_Speed", "Precipitation"
+]
+
+weather_df[numeric_columns] = weather_df[numeric_columns].apply(
+    pd.to_numeric, errors="coerce"
+)
+
+weather_df[numeric_columns] = (
+    weather_df[numeric_columns]
+    .interpolate()
+    .ffill()
+    .bfill()
+)
+
+weather_df.dropna(subset=numeric_columns, inplace=True)
+
+# 6. Extract Date and Hour
+weather_df["Date"] = weather_df["Timestamp"].dt.date
+weather_df["Hour"] = weather_df["Timestamp"].dt.hour
+
+print("\nCleaned Weather Data:\n", weather_df)
+
+# 7. Descriptive Statistics
+print("\nDescriptive Statistics:\n",
+      weather_df[numeric_columns].describe())
+
+# 8. Weather Statistics
+print("\nAverage Temperature:",
+      round(weather_df["Temperature"].mean(), 2), "°C")
+
+print("Maximum Temperature:",
+      weather_df["Temperature"].max(), "°C")
+
+print("Minimum Temperature:",
+      weather_df["Temperature"].min(), "°C")
+
+print("Average Humidity:",
+      round(weather_df["Humidity"].mean(), 2), "%")
+
+print("Average Wind Speed:",
+      round(weather_df["Wind_Speed"].mean(), 2), "m/s")
+
+# 9. Daily Weather Aggregation
+daily_weather = weather_df.groupby("Date").agg({
+    "Temperature": ["mean", "min", "max"],
+    "Humidity": "mean",
+    "Wind_Speed": "mean",
+    "Precipitation": "sum"
+})
+
+print("\nDaily Weather Statistics:\n", daily_weather)
+
+# 10. Temperature Trend
+plt.figure(figsize=(10, 5))
+plt.plot(weather_df["Timestamp"], weather_df["Temperature"], marker="o")
+plt.title("Temperature Changes Over Time")
+plt.xlabel("Time")
+plt.ylabel("Temperature (°C)")
+plt.xticks(rotation=45)
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# 11. Humidity Trend
+plt.figure(figsize=(10, 5))
+plt.plot(weather_df["Timestamp"], weather_df["Humidity"], marker="o")
+plt.title("Humidity Changes Over Time")
+plt.xlabel("Time")
+plt.ylabel("Humidity (%)")
+plt.xticks(rotation=45)
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# 12. Wind Speed Bar Plot
+plt.figure(figsize=(10, 5))
+plt.bar(range(len(weather_df)), weather_df["Wind_Speed"])
+plt.title("Wind Speed Variation")
+plt.xlabel("Observation")
+plt.ylabel("Wind Speed (m/s)")
+plt.grid(axis="y")
+plt.show()
+
+# 13. Precipitation Plot
+plt.figure(figsize=(10, 5))
+plt.bar(range(len(weather_df)), weather_df["Precipitation"])
+plt.title("Precipitation Levels")
+plt.xlabel("Observation")
+plt.ylabel("Precipitation (mm)")
+plt.grid(axis="y")
+plt.show()
+
+# 14. Temperature vs Humidity
+plt.figure(figsize=(8, 5))
+plt.scatter(weather_df["Temperature"], weather_df["Humidity"])
+plt.title("Temperature vs Humidity")
+plt.xlabel("Temperature (°C)")
+plt.ylabel("Humidity (%)")
+plt.grid(True)
+plt.show()
+
+# 15. Correlation Analysis
+correlation = weather_df[numeric_columns].corr()
+print("\nCorrelation Matrix:\n", correlation)
+
+# 16. Correlation Heatmap using Matplotlib
+plt.figure(figsize=(8, 6))
+plt.imshow(correlation, cmap="coolwarm", vmin=-1, vmax=1)
+plt.colorbar()
+
+plt.xticks(range(len(numeric_columns)), numeric_columns,
+           rotation=45, ha="right")
+plt.yticks(range(len(numeric_columns)), numeric_columns)
+
+for i in range(len(numeric_columns)):
+    for j in range(len(numeric_columns)):
+        plt.text(j, i, f"{correlation.iloc[i, j]:.2f}",
+                 ha="center", va="center")
+
+plt.title("Weather Attributes Correlation")
+plt.tight_layout()
+plt.show()
+
+# 17. Save Weather Data
+weather_df.to_csv("weather_data.csv", index=False)
+print("\nWeather data saved successfully!")

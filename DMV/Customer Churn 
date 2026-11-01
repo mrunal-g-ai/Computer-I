@@ -1,0 +1,242 @@
+
+# EXPERIMENT 3: Data Cleaning and Preparation for Customer Churn Analysis
+
+# 1. Import Libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import re
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+# 2. Load Dataset
+df = pd.read_csv("Telecom_Customer_Churn.csv")
+print("Dataset loaded successfully!")
+
+# 3. Explore Dataset
+print("\nFirst 5 Records:\n", df.head())
+print("\nLast 5 Records:\n", df.tail())
+print("\nDataset Shape:", df.shape)
+print("\nColumn Names:\n", df.columns.tolist())
+print("\nDataset Information:")
+df.info()
+print("\nStatistical Summary:\n", df.describe(include="all"))
+
+# 4. Standardize Column Names
+def clean_column_name(col):
+    col = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', col)
+    return col.strip().lower().replace(" ", "_")
+
+df.columns = [clean_column_name(col) for col in df.columns]
+
+# Handle common dataset column-name variations
+df.rename(columns={
+    "totalcharges": "total_charges",
+    "monthlycharges": "monthly_charges",
+    "customerid": "customer_id"
+}, inplace=True)
+
+print("\nStandardized Columns:\n", df.columns.tolist())
+
+# 5. Convert Numeric Columns
+for col in ["total_charges", "tenure", "monthly_charges"]:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+# 6. Check and Handle Missing Values
+print("\nMissing Values Before Cleaning:\n", df.isnull().sum())
+
+numeric_columns = df.select_dtypes(include=np.number).columns
+categorical_columns = df.select_dtypes(exclude=np.number).columns
+
+for col in numeric_columns:
+    df[col] = df[col].fillna(df[col].median())
+
+for col in categorical_columns:
+    if df[col].isnull().any() and not df[col].mode().empty:
+        df[col] = df[col].fillna(df[col].mode()[0])
+
+print("\nMissing Values After Cleaning:\n", df.isnull().sum())
+
+# 7. Remove Duplicate Records
+print("\nDuplicate Records:", df.duplicated().sum())
+df.drop_duplicates(inplace=True)
+print("Shape After Removing Duplicates:", df.shape)
+
+# 8. Standardize Categorical Values
+for col in df.select_dtypes(include="object").columns:
+    df[col] = df[col].str.strip()
+
+if "churn" not in df.columns:
+    raise ValueError("Churn column not found in the dataset.")
+
+df["churn"] = (
+    df["churn"].astype(str).str.lower().str.strip()
+    .replace({"y": "yes", "n": "no"})
+)
+
+# 9. Identify Outliers Using IQR
+numeric_columns = df.select_dtypes(include=np.number).columns
+
+print("\nOutlier Detection:")
+for col in numeric_columns:
+    q1 = df[col].quantile(0.25)
+    q3 = df[col].quantile(0.75)
+    iqr = q3 - q1
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+    count = ((df[col] < lower) | (df[col] > upper)).sum()
+    print(col, "-> Outliers:", count)
+
+# 10. Handle Outliers Using Capping
+for col in numeric_columns:
+    q1 = df[col].quantile(0.25)
+    q3 = df[col].quantile(0.75)
+    iqr = q3 - q1
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+    df[col] = df[col].clip(lower, upper)
+
+# 11. Feature Engineering
+if "tenure" in df.columns:
+    df["tenure_group"] = pd.cut(
+        df["tenure"],
+        bins=[-1, 12, 24, 48, 1000],
+        labels=["0-1 Year", "1-2 Years", "2-4 Years", "4+ Years"]
+    )
+
+if "total_charges" in df.columns and "tenure" in df.columns:
+    df["avg_monthly_spend"] = (
+        df["total_charges"] /
+        df["tenure"].replace(0, np.nan)
+    ).replace([np.inf, -np.inf], np.nan).fillna(0)
+
+service_columns = [
+    col for col in [
+        "phone_service", "multiple_lines", "online_security",
+        "online_backup", "device_protection", "tech_support",
+        "streaming_tv", "streaming_movies"
+    ] if col in df.columns
+]
+
+if service_columns:
+    df["number_of_services"] = df[service_columns].apply(
+        lambda row: sum(
+            str(value).lower() in ["yes", "1", "true"]
+            for value in row
+        ), axis=1
+    )
+
+print("\nData After Feature Engineering:\n", df.head())
+
+# 12. Encode Churn Variable
+df["churn"] = df["churn"].map({"yes": 1, "no": 0})
+
+# Remove rows with invalid target values, if any
+df.dropna(subset=["churn"], inplace=True)
+df["churn"] = df["churn"].astype(int)
+
+print("\nChurn Distribution:\n", df["churn"].value_counts())
+
+# 13. Prepare Features and Target
+y = df["churn"]
+X = df.drop(columns=["churn", "customer_id"], errors="ignore")
+
+# Convert categorical features into numerical dummy variables
+X = pd.get_dummies(X, drop_first=True, dtype=int)
+
+# Handle remaining missing and infinite values
+X = X.replace([np.inf, -np.inf], np.nan)
+X = X.fillna(X.median(numeric_only=True)).fillna(0)
+
+print("\nFeature Shape:", X.shape)
+
+# 14. Train-Test Split
+if y.nunique() < 2 or y.value_counts().min() < 2:
+    raise ValueError("The dataset needs at least two churn classes with two records each.")
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y,
+    test_size=0.20,
+    random_state=42,
+    stratify=y
+)
+
+print("\nTraining Data:", X_train.shape)
+print("Testing Data:", X_test.shape)
+
+# 15. Scale Numerical Features
+scaler = StandardScaler()
+
+X_train = X_train.copy()
+X_test = X_test.copy()
+
+numeric_features = X_train.select_dtypes(include=np.number).columns
+
+X_train.loc[:, numeric_features] = scaler.fit_transform(
+    X_train[numeric_features]
+)
+
+X_test.loc[:, numeric_features] = scaler.transform(
+    X_test[numeric_features]
+)
+
+print("\nNumerical Features Scaled Successfully!")
+
+# 16. Export Cleaned Dataset
+df.to_csv("Telecom_Customer_Churn_Cleaned.csv", index=False)
+
+# 17. Export Training and Testing Data
+train_data = X_train.copy()
+train_data["churn"] = y_train
+
+test_data = X_test.copy()
+test_data["churn"] = y_test
+
+train_data.to_csv("churn_train.csv", index=False)
+test_data.to_csv("churn_test.csv", index=False)
+
+print("\nCleaned, Training and Testing Datasets Exported Successfully!")
+
+# 18. Churn Distribution Plot
+plt.figure(figsize=(7, 5))
+df["churn"].value_counts().sort_index().plot(
+    kind="bar", rot=0
+)
+plt.title("Customer Churn Distribution")
+plt.xlabel("Churn (0 = No, 1 = Yes)")
+plt.ylabel("Number of Customers")
+plt.grid(axis="y")
+plt.show()
+
+# 19. Monthly Charges Box Plot
+if "monthly_charges" in df.columns:
+    plt.figure(figsize=(8, 5))
+    plt.boxplot(df["monthly_charges"].dropna())
+    plt.title("Monthly Charges - Outlier Detection")
+    plt.ylabel("Monthly Charges")
+    plt.show()
+
+# 20. Correlation Heatmap
+numeric_df = df.select_dtypes(include=np.number)
+correlation = numeric_df.corr()
+
+plt.figure(figsize=(10, 7))
+plt.imshow(correlation, cmap="coolwarm", vmin=-1, vmax=1)
+plt.colorbar()
+
+plt.xticks(range(len(correlation.columns)),
+           correlation.columns, rotation=90)
+plt.yticks(range(len(correlation.columns)),
+           correlation.columns)
+
+for i in range(len(correlation.columns)):
+    for j in range(len(correlation.columns)):
+        plt.text(j, i, f"{correlation.iloc[i, j]:.2f}",
+                 ha="center", va="center", fontsize=7)
+
+plt.title("Customer Churn Correlation Heatmap")
+plt.tight_layout()
+plt.show()
+
+print("\nEXPERIMENT 3 COMPLETED SUCCESSFULLY!")

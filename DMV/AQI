@@ -1,0 +1,341 @@
+
+# EXPERIMENT 5: DATA VISUALIZATION USING MATPLOTLIB
+# Analyzing Air Quality Index (AQI) Trends in Mumbai
+
+# 1. Import Libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 2. Import Dataset Directly from Online URL
+DATA_URL = "https://raw.githubusercontent.com/cp099/India-Air-Quality-Dataset/main/Mumbai_AQI_Dataset.csv"
+
+df = pd.read_csv(DATA_URL)
+print("Dataset loaded successfully!")
+print(df.head())
+
+# 3. Explore Dataset
+print("\nDataset Shape:", df.shape)
+print("\nColumn Names:", df.columns.tolist())
+
+print("\nDataset Information:")
+df.info()
+
+print("\nStatistical Summary:\n", df.describe(include="all"))
+
+# 4. Clean Column Names
+df.columns = (
+    df.columns.str.strip()
+    .str.lower()
+    .str.replace(r"[^a-zA-Z0-9]+", "_", regex=True)
+    .str.strip("_")
+)
+
+# Remove unwanted unnamed columns
+df = df.loc[:, ~df.columns.str.startswith("unnamed")]
+
+print("\nCleaned Column Names:")
+print(df.columns.tolist())
+
+# 5. Convert Date/Time Column
+if "date_time" in df.columns:
+    df["date_time"] = pd.to_datetime(
+        df["date_time"], errors="coerce", dayfirst=True
+    )
+elif "date" in df.columns:
+    df["date_time"] = pd.to_datetime(
+        df["date"], errors="coerce", dayfirst=True
+    )
+else:
+    raise ValueError("Date column not found in dataset.")
+
+# 6. Check Missing Values
+print("\nMissing Values:\n", df.isnull().sum())
+
+# 7. Convert Pollutant Columns to Numeric
+pollutant_columns = ["pm2_5", "pm10", "co"]
+
+for col in pollutant_columns:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+# Convert AQI
+if "aqi" in df.columns:
+    aqi_column = "aqi"
+elif "aqi_value" in df.columns:
+    aqi_column = "aqi_value"
+else:
+    raise ValueError("AQI column not found in dataset.")
+
+df[aqi_column] = pd.to_numeric(
+    df[aqi_column], errors="coerce"
+)
+
+# Convert other pollutant columns
+for col in ["no2", "so2", "o3"]:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+print("\nAQI Column:", aqi_column)
+
+# 8. Data Cleaning
+df.dropna(subset=["date_time", aqi_column], inplace=True)
+df.drop_duplicates(inplace=True)
+
+numeric_columns = df.select_dtypes(include=np.number).columns
+
+df = df.sort_values("date_time").reset_index(drop=True)
+
+df[numeric_columns] = (
+    df[numeric_columns]
+    .interpolate()
+    .ffill()
+    .bfill()
+)
+
+print("\nCleaned Dataset:\n", df.head())
+print("\nMissing Values After Cleaning:\n", df.isnull().sum())
+
+# 9. Overall AQI Trend
+plt.figure(figsize=(12, 5))
+plt.plot(
+    df["date_time"],
+    df[aqi_column],
+    marker="o",
+    linewidth=1.5,
+    label="AQI"
+)
+plt.title("Overall AQI Trend Over Time - Mumbai")
+plt.xlabel("Date")
+plt.ylabel("AQI")
+plt.legend()
+plt.grid(True)
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# 10. PM2.5 Trend
+if "pm2_5" in df.columns:
+    plt.figure(figsize=(12, 5))
+    plt.plot(
+        df["date_time"], df["pm2_5"],
+        marker="o", label="PM2.5"
+    )
+    plt.title("PM2.5 Trend Over Time")
+    plt.xlabel("Date")
+    plt.ylabel("PM2.5")
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# 11. PM10 Trend
+if "pm10" in df.columns:
+    plt.figure(figsize=(12, 5))
+    plt.plot(
+        df["date_time"], df["pm10"],
+        marker="o", label="PM10"
+    )
+    plt.title("PM10 Trend Over Time")
+    plt.xlabel("Date")
+    plt.ylabel("PM10")
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# 12. CO Trend
+if "co" in df.columns:
+    plt.figure(figsize=(12, 5))
+    plt.plot(
+        df["date_time"], df["co"],
+        marker="o", label="CO"
+    )
+    plt.title("CO Trend Over Time")
+    plt.xlabel("Date")
+    plt.ylabel("CO")
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# 13. Combined Pollutant Trends
+available_pollutants = [
+    col for col in pollutant_columns if col in df.columns
+]
+
+plt.figure(figsize=(12, 6))
+
+for col in available_pollutants:
+    plt.plot(
+        df["date_time"],
+        df[col],
+        marker="o",
+        label=col.upper()
+    )
+
+plt.title("Pollutant Levels Over Time")
+plt.xlabel("Date")
+plt.ylabel("Pollutant Level")
+plt.legend()
+plt.grid(True)
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# 14. Bar Plot - Average AQI by Date
+df["date"] = df["date_time"].dt.date
+
+daily_aqi = df.groupby("date")[aqi_column].mean()
+
+print("\nDaily Average AQI:\n", daily_aqi)
+
+plt.figure(figsize=(12, 6))
+plt.bar(range(len(daily_aqi)), daily_aqi.values)
+plt.title("Average Daily AQI")
+plt.xlabel("Date")
+plt.ylabel("Average AQI")
+plt.xticks(
+    range(len(daily_aqi)),
+    daily_aqi.index,
+    rotation=45
+)
+plt.tight_layout()
+plt.show()
+
+# 15. Box Plot - AQI Distribution
+plt.figure(figsize=(8, 5))
+plt.boxplot(df[aqi_column].dropna())
+plt.title("AQI Distribution")
+plt.ylabel("AQI")
+plt.grid(True)
+plt.show()
+
+# 16. Box Plot for Pollutants
+data_to_plot = [
+    df[col].dropna()
+    for col in available_pollutants
+    if not df[col].dropna().empty
+]
+
+plot_labels = [
+    col.upper()
+    for col in available_pollutants
+    if not df[col].dropna().empty
+]
+
+if data_to_plot:
+    plt.figure(figsize=(10, 6))
+    plt.boxplot(data_to_plot, tick_labels=plot_labels)
+    plt.title("Distribution of Pollutant Levels")
+    plt.xlabel("Pollutant")
+    plt.ylabel("Concentration")
+    plt.grid(True)
+    plt.show()
+
+# 17. Scatter Plot - AQI vs PM2.5
+if "pm2_5" in df.columns:
+    plt.figure(figsize=(8, 5))
+    plt.scatter(
+        df["pm2_5"], df[aqi_column], alpha=0.7
+    )
+    plt.title("AQI vs PM2.5")
+    plt.xlabel("PM2.5")
+    plt.ylabel("AQI")
+    plt.grid(True)
+    plt.show()
+
+# 18. Scatter Plot - AQI vs PM10
+if "pm10" in df.columns:
+    plt.figure(figsize=(8, 5))
+    plt.scatter(
+        df["pm10"], df[aqi_column], alpha=0.7
+    )
+    plt.title("AQI vs PM10")
+    plt.xlabel("PM10")
+    plt.ylabel("AQI")
+    plt.grid(True)
+    plt.show()
+
+# 19. Scatter Plot - AQI vs CO
+if "co" in df.columns:
+    plt.figure(figsize=(8, 5))
+    plt.scatter(
+        df["co"], df[aqi_column], alpha=0.7
+    )
+    plt.title("AQI vs CO")
+    plt.xlabel("CO")
+    plt.ylabel("AQI")
+    plt.grid(True)
+    plt.show()
+
+# 20. Correlation Analysis
+correlation_columns = (
+    [aqi_column] + available_pollutants
+)
+
+correlation = df[correlation_columns].corr()
+
+print("\nCorrelation Matrix:")
+print(correlation)
+
+# 21. Correlation Heatmap Using Matplotlib
+plt.figure(figsize=(8, 6))
+
+plt.imshow(
+    correlation,
+    cmap="coolwarm",
+    vmin=-1,
+    vmax=1,
+    interpolation="nearest"
+)
+
+plt.colorbar()
+
+plt.xticks(
+    range(len(correlation.columns)),
+    correlation.columns,
+    rotation=45
+)
+
+plt.yticks(
+    range(len(correlation.columns)),
+    correlation.columns
+)
+
+for i in range(len(correlation.columns)):
+    for j in range(len(correlation.columns)):
+        plt.text(
+            j, i,
+            f"{correlation.iloc[i, j]:.2f}",
+            ha="center",
+            va="center"
+        )
+
+plt.title("Correlation Between AQI and Pollutants")
+plt.tight_layout()
+plt.show()
+
+# 22. AQI Summary Statistics
+print("\nAQI Summary Statistics")
+
+print("Average AQI:",
+      round(df[aqi_column].mean(), 2))
+
+print("Maximum AQI:",
+      df[aqi_column].max())
+
+print("Minimum AQI:",
+      df[aqi_column].min())
+
+print("Median AQI:",
+      df[aqi_column].median())
+
+# 23. Export Cleaned Dataset
+df.to_csv("Mumbai_Air_Quality_Cleaned.csv", index=False)
+
+print("\nCleaned Dataset Exported Successfully!")
+print("EXPERIMENT 5 COMPLETED SUCCESSFULLY!")

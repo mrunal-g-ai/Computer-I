@@ -1,0 +1,105 @@
+# Experiment 1: Feature Transformation - LDA on Iris Dataset
+
+# 1. Import Libraries
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
+# 2. Load Dataset
+if os.path.exists("Iris.csv"):
+    df = pd.read_csv("Iris.csv")
+    df = df.drop(columns=["Id"], errors="ignore")
+
+    X = df.iloc[:, :4]
+    y = df["Species"]
+
+    print("Data source: Iris.csv")
+
+else:
+    iris = load_iris(as_frame=True)
+    X = iris.data
+    y = pd.Series(iris.target_names[iris.target], name="Species")
+
+    print("Data source: Scikit-learn built-in Iris dataset")
+
+# 3. Inspect Dataset
+print("\nDataset Shape:", X.shape)
+
+print("\nFirst 5 Rows:")
+print(X.head())
+
+print("\nMissing Values:")
+print(X.isnull().sum())
+
+print("\nClass Counts:")
+print(y.value_counts())
+
+# 4. Split Dataset into Training and Testing
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.3, random_state=42, stratify=y
+)
+
+# 5. Apply Linear Discriminant Analysis
+lda = LinearDiscriminantAnalysis(n_components=2)
+lda.fit(X_train, y_train)
+
+# 6. Feature Transformation (4 Features to 2 Features)
+X_train_lda = lda.transform(X_train)
+X_test_lda = lda.transform(X_test)
+
+print("\nOriginal Shape:", X_train.shape)
+print("Reduced Shape:", X_train_lda.shape)
+
+print("\nExplained Variance Ratio:")
+print(np.round(lda.explained_variance_ratio_, 4))
+
+# 7. Prediction and Model Evaluation
+y_pred = lda.predict(X_test)
+
+print("\nAccuracy: {:.2f}%".format(
+    accuracy_score(y_test, y_pred) * 100
+))
+
+print("\nConfusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred))
+
+# 8. Classify a New Flower Sample
+sample = pd.DataFrame(
+    [[5.1, 3.5, 1.4, 0.2]],
+    columns=X.columns
+)
+
+print("\nSample Flower:", sample.values.tolist()[0])
+print("Predicted Species:", lda.predict(sample)[0])
+
+# 9. Visualize LDA Projection
+plt.figure(figsize=(8, 5))
+
+for species in np.unique(y_train):
+    mask = (y_train == species).values
+
+    plt.scatter(
+        X_train_lda[mask, 0],
+        X_train_lda[mask, 1],
+        label=species
+    )
+
+plt.xlabel("LD1")
+plt.ylabel("LD2")
+plt.title("Iris Dataset Projected onto LDA Components")
+plt.legend()
+plt.grid(alpha=0.3)
+plt.show()
+
+# 10. Experiment Result
+print("\nExperiment 1 Completed Successfully!")
+print("LDA Feature Transformation: 4 Features -> 2 Features")

@@ -1,0 +1,204 @@
+# Experiment 2: Uber Fare Prediction using Linear, Ridge and Lasso Regression
+
+# 1. Import Libraries
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+
+# 2. Load Dataset
+if os.path.exists("uber.csv"):
+    df = pd.read_csv("uber.csv")
+    print("Data source: uber.csv")
+else:
+    rng = np.random.default_rng(42)
+    n = 20000
+
+    lat1 = rng.uniform(40.62, 40.88, n)
+    lon1 = rng.uniform(-74.03, -73.78, n)
+    lat2 = lat1 + rng.normal(0, 0.04, n)
+    lon2 = lon1 + rng.normal(0, 0.04, n)
+
+    km = np.sqrt(((lat2-lat1)*111)**2 + ((lon2-lon1)*84)**2)
+    t = pd.to_datetime("2012-01-01") + pd.to_timedelta(
+        rng.integers(0, 3*365*24*60, n), unit="m"
+    )
+
+    fare = 2.5 + 1.8*km + 0.4*(t.year-2012) + rng.normal(0, 1.2, n)
+
+    df = pd.DataFrame({
+        "fare_amount": fare.round(2),
+        "pickup_datetime": t.astype(str) + " UTC",
+        "pickup_longitude": lon1,
+        "pickup_latitude": lat1,
+        "dropoff_longitude": lon2,
+        "dropoff_latitude": lat2,
+        "passenger_count": rng.integers(1, 7, n)
+    })
+
+    bad = rng.choice(n, 150, replace=False)
+    df.loc[bad[:50], "fare_amount"] = rng.uniform(150, 500, 50)
+    df.loc[bad[50:80], "fare_amount"] = -rng.uniform(1, 5, 30)
+    df.loc[bad[80:110], ["pickup_latitude", "pickup_longitude"]] = 0
+    df.loc[bad[110:130], "passenger_count"] = 0
+    df.loc[bad[130:140], "dropoff_latitude"] = np.nan
+
+    print("Data source: Synthetic fallback dataset")
+
+# 3. Data Preprocessing
+df.drop(columns=["Unnamed: 0", "key"], errors="ignore", inplace=True)
+
+print("\nDataset Shape:", df.shape)
+print("\nMissing Values:\n", df.isnull().sum()[df.isnull().sum() > 0])
+
+df.dropna(inplace=True)
+
+# Fixed datetime parsing
+df["pickup_datetime"] = pd.to_datetime(
+    df["pickup_datetime"], format="mixed", utc=True
+)
+
+df["hour"] = df["pickup_datetime"].dt.hour
+df["weekday"] = df["pickup_datetime"].dt.weekday
+df["month"] = df["pickup_datetime"].dt.month
+df["year"] = df["pickup_datetime"].dt.year
+
+# 4. Calculate Haversine Distance
+def haversine(lat1, lon1, lat2, lon2):
+    p = np.pi / 180
+    a = (
+        np.sin((lat2-lat1)*p/2)**2 +
+        np.cos(lat1*p)*np.cos(lat2*p)*np.sin((lon2-lon1)*p/2)**2
+    )
+    return 12742 * np.arcsin(np.sqrt(a))
+
+df["distance_km"] = haversine(
+    df.pickup_latitude, df.pickup_longitude,
+    df.dropoff_latitude, df.dropoff_longitude
+)
+
+# Remove Invalid Rows
+before = len(df)
+
+df = df[
+    (df.fare_amount > 0) &
+    df.passenger_count.between(1, 6) &
+    df.pickup_latitude.between(40, 42) &
+    df.dropoff_latitude.between(40, 42) &
+    df.pickup_longitude.between(-75, -72) &
+    df.dropoff_longitude.between(-75, -72)
+]
+
+print("\nInvalid Rows Removed:", before-len(df))
+
+# 5. Outlier Detection using IQR
+def iqr_bounds(s):
+    q1, q3 = s.quantile([0.25, 0.75])
+    i = q3-q1
+    return q1-1.5*i, q3+1.5*i
+
+fig, ax = plt.subplots(1, 2, figsize=(9, 4))
+
+for col, a in zip(["fare_amount", "distance_km"], ax):
+    df.boxplot(column=col, ax=a)
+    a.set_title(col)
+
+plt.tight_layout()
+plt.show()
+
+for col in ["fare_amount", "distance_km"]:
+    lo, hi = iqr_bounds(df[col])
+    print(f"{col}: bounds ({lo:.2f}, {hi:.2f}) -> {((df[col]<lo)|(df[col]>hi)).sum()} outliers")
+    df = df[df[col].between(lo, hi)]
+
+print("\nShape after Outlier Removal:", df.shape)
+
+# 6. Correlation Analysis
+num = df[[
+    "fare_amount", "distance_km", "passenger_count",
+    "hour", "weekday", "month", "year"
+]]
+
+corr = num.corr()
+
+print("\nCorrelation with fare_amount:\n", corr["fare_amount"].round(3))
+
+plt.figure(figsize=(7, 5.5))
+plt.imshow(corr, cmap="coolwarm", vmin=-1, vmax=1)
+plt.colorbar()
+
+plt.xticks(range(len(corr)), corr.columns, rotation=45, ha="right")
+plt.yticks(range(len(corr)), corr.columns)
+
+for i in range(len(corr)):
+    for j in range(len(corr)):
+        plt.text(j, i, f"{corr.iloc[i,j]:.2f}",
+                 ha="center", va="center", fontsize=8)
+
+plt.title("Correlation Matrix")
+plt.tight_layout()
+plt.show()
+
+# 7. Train-Test Split and Feature Scaling
+features = [
+    "distance_km", "passenger_count",
+    "hour", "weekday", "month", "year"
+]
+
+X, y = df[features], df["fare_amount"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+sc = StandardScaler()
+X_train_s = sc.fit_transform(X_train)
+X_test_s = sc.transform(X_test)
+
+# 8. Train Regression Models
+models = {
+    "Linear": LinearRegression(),
+    "Ridge": Ridge(alpha=1.0),
+    "Lasso": Lasso(alpha=0.01)
+}
+
+rows = []
+
+for name, model in models.items():
+    model.fit(X_train_s, y_train)
+    pred = model.predict(X_test_s)
+
+    rows.append([
+        name,
+        r2_score(y_test, pred),
+        np.sqrt(mean_squared_error(y_test, pred)),
+        mean_absolute_error(y_test, pred)
+    ])
+
+# 9. Model Comparison
+res = pd.DataFrame(
+    rows, columns=["Model", "R2", "RMSE", "MAE"]
+).set_index("Model")
+
+print("\nModel Comparison:\n", res.round(4))
+
+print("\nLasso Coefficients (0 = feature dropped):")
+print(pd.Series(models["Lasso"].coef_, index=features).round(3))
+
+# 10. Compare R2 Scores
+res["R2"].plot(
+    kind="bar", legend=False,
+    ylim=(res.R2.min()-0.01, 1), rot=0
+)
+
+plt.title("R2 Score by Model")
+plt.ylabel("R2")
+plt.show()
+
+# Experiment Result
+print("\nExperiment 2 Completed Successfully!")

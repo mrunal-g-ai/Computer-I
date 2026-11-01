@@ -1,0 +1,161 @@
+# Experiment 6: Tic-Tac-Toe using Reinforcement Learning (Q-Learning)
+
+# 1. Import Libraries
+import random
+from collections import defaultdict
+import matplotlib.pyplot as plt
+
+random.seed(0)
+
+# 2. Tic-Tac-Toe Environment
+class TicTacToe:
+    LINES = [
+        (0,1,2), (3,4,5), (6,7,8),
+        (0,3,6), (1,4,7), (2,5,8),
+        (0,4,8), (2,4,6)
+    ]
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.board = [" "] * 9
+        return self.state()
+
+    def state(self):
+        return "".join(self.board)
+
+    def valid_actions(self):
+        return [i for i, c in enumerate(self.board) if c == " "]
+
+    def winner(self):
+        for a, b, c in self.LINES:
+            if self.board[a] != " " and self.board[a] == self.board[b] == self.board[c]:
+                return self.board[a]
+        return "draw" if " " not in self.board else None
+
+    def move(self, pos, player):
+        self.board[pos] = player
+
+    def show(self):
+        for r in range(3):
+            print(" " + " | ".join(self.board[3*r:3*r+3]))
+            if r < 2:
+                print("---+---+---")
+
+# 3. Q-Learning Agent
+class QAgent:
+    def __init__(self, alpha=0.3, gamma=0.95, epsilon=1.0):
+        self.Q = defaultdict(float)
+        self.alpha, self.gamma, self.epsilon = alpha, gamma, epsilon
+
+    def best(self, s, actions):
+        qs = [self.Q[(s, a)] for a in actions]
+        m = max(qs)
+        return random.choice([a for a, q in zip(actions, qs) if q == m])
+
+    def act(self, s, actions, explore=True):
+        if explore and random.random() < self.epsilon:
+            return random.choice(actions)
+        return self.best(s, actions)
+
+    def update(self, s, a, r, s2, actions2):
+        future = max((self.Q[(s2, a2)] for a2 in actions2), default=0.0)
+        self.Q[(s, a)] += self.alpha * (r + self.gamma * future - self.Q[(s, a)])
+
+# 4. Rewards and Game Simulation
+REWARD = {"X": 1.0, "O": -1.0, "draw": 0.5}
+
+def play_episode(env, agent, learn=True, opponent_first=False):
+    env.reset()
+
+    if opponent_first:
+        env.move(random.choice(env.valid_actions()), "O")
+
+    while True:
+        s = env.state()
+        acts = env.valid_actions()
+        a = agent.act(s, acts, explore=learn)
+        env.move(a, "X")
+        res = env.winner()
+
+        if res is None:
+            env.move(random.choice(env.valid_actions()), "O")
+            res = env.winner()
+
+        if res is not None:
+            if learn:
+                agent.update(s, a, REWARD[res], env.state(), [])
+            return res
+
+        if learn:
+            agent.update(s, a, 0.0, env.state(), env.valid_actions())
+
+def evaluate(agent, n=1000):
+    env = TicTacToe()
+    out = {"X": 0, "O": 0, "draw": 0}
+
+    for g in range(n):
+        result = play_episode(env, agent, learn=False, opponent_first=(g % 2 == 1))
+        out[result] += 1
+
+    return out
+
+# 5. Train the Agent
+agent, env = QAgent(), TicTacToe()
+
+print("Before training (1000 games):")
+print(evaluate(QAgent(epsilon=1.0), 1000), "(X = Agent, O = Opponent)")
+
+EPISODES = 30000
+hist = []
+
+for ep in range(1, EPISODES + 1):
+    agent.epsilon = max(0.05, 1.0 - ep / (0.6 * EPISODES))
+    res = play_episode(env, agent, learn=True, opponent_first=(random.random() < 0.5))
+    hist.append(res == "X")
+
+    if ep % 5000 == 0:
+        print(f"Episode {ep:6d} | Epsilon {agent.epsilon:.2f} | "
+              f"Recent win rate {sum(hist[-1000:])/1000:.1%} | "
+              f"States learned {len({s for s, _ in agent.Q})}")
+
+# 6. Test the Trained Agent
+agent.epsilon = 0.0
+r = evaluate(agent, 1000)
+
+print("\nAfter Training (1000 games):")
+print(f"Wins: {r['X']} | Draws: {r['draw']} | Losses: {r['O']}")
+print(f"Win Rate: {r['X']/10:.1f}%")
+
+# 7. Demonstration Game
+print("\nDemo Game (Agent = X, Opponent = O):")
+random.seed(7)
+env.reset()
+
+while env.winner() is None:
+    env.move(agent.act(env.state(), env.valid_actions(), explore=False), "X")
+
+    if env.winner() is None:
+        env.move(random.choice(env.valid_actions()), "O")
+
+env.show()
+w = env.winner()
+
+print("Result:", "Agent (X) wins!" if w == "X" else
+      "Opponent (O) wins" if w == "O" else "Draw")
+
+# 8. Learning Curve
+k = 500
+curve = [sum(hist[i:i+k])/k for i in range(0, len(hist)-k+1, k)]
+
+plt.figure(figsize=(7, 4.5))
+plt.plot(range(k, len(hist)+1, k), curve)
+plt.xlabel("Training Episode")
+plt.ylabel("Win Rate (per 500 episodes)")
+plt.title("Q-Learning Agent: Learning Curve")
+plt.grid(alpha=0.3)
+plt.show()
+
+# Experiment Result
+print("\nExperiment 6 Completed Successfully!")
